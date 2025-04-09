@@ -1,5 +1,4 @@
-flask==3.1.0
-python-telegram-bot[job-queue]==20.7
+flask[async]
+python-telegram-bot==20.7
 openai>=1.0.0
 pytz
-flask[async]
