@@ -89,7 +89,8 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 async def webhook():
     if not application._initialized:
         await application.initialize()
-    await application.process_update(Update.de_json(request.get_json(force=True), application.bot))
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
     return "OK"
 
 
