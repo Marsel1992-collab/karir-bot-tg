@@ -1,4 +1,3 @@
-
 import os
 import logging
 import pytz
@@ -26,6 +25,9 @@ def contains_insult(text):
     return bool(re.search(r'\b(тупой|дурак|лох|гандон|чмо|мразь)\b', text.lower()))
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(">>> Получено сообщение:", update.message.text)
+    print(">>> Полный апдейт:", update)
+
     chat_id = update.effective_chat.id
     text = update.message.text.lower()
 
@@ -64,6 +66,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(reply)
             except Exception as e:
                 await update.message.reply_text(f"Ошибка OpenAI: {e}")
+                print(">>> Ошибка OpenAI:", e)
 
     if no_mention_mode[chat_id] > 0:
         no_mention_mode[chat_id] -= 1
@@ -81,7 +84,7 @@ def webhook():
     return "OK"
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
