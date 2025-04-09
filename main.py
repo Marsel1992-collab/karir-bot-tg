@@ -101,7 +101,12 @@ def webhook():
             await application.initialize()
         await application.process_update(update)
 
-    return asyncio.run(process())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    result = loop.run_until_complete(process())
+    loop.close()
+    return "OK"
+
 
 # Запуск сервера
 if __name__ == "__main__":
