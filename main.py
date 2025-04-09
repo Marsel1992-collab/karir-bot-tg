@@ -1,9 +1,11 @@
+import os
+import re
+import pytz
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
-import asyncio
-from openai import OpenAI
-import pytz
+from openai import AsyncOpenAI  # ✅ ЭТО ДОБАВИТЬ
+
 
 # ==== Ключи ====
 openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
