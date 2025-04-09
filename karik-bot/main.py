@@ -99,7 +99,8 @@ def webhook():
 # Запуск приложения на нужном порту
 if __name__ == "__main__":
     import os
-    port = int(os.environ.get("PORT", 5000))  # порт от Render
-    app.run(host="0.0.0.0", port=port)        # разрешаем входящие подключения
+    port = int(os.environ.get("PORT", 5000))     # ← порт от Render
+    app.run(host="0.0.0.0", port=port)            # ← правильный запуск
+
 
 
