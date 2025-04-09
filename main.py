@@ -1,17 +1,17 @@
 import os
 import logging
 import pytz
+import re
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 import openai
-import re
-import asyncio
 
-# Настройка логов (по желанию)
+# Логирование
 logging.basicConfig(level=logging.INFO)
 
-# Ключи из переменных среды
+# API-ключи из переменных окружения
 openai.api_key = os.getenv("OPENAI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
@@ -21,21 +21,19 @@ app = Flask(__name__)
 # Telegram Application
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# Инициализация состояний
+# Ключевое слово и состояния
 KEYWORD = "карик"
 swear_mode = {}
 no_mention_mode = {}
 insult_mode = {}
 
-# Фильтр мата
 def contains_swear(text):
     return bool(re.search(r'\b(бляд|нахуй|сука|пизд|хуй|еб)\b', text.lower()))
 
-# Фильтр оскорблений
 def contains_insult(text):
     return bool(re.search(r'\b(тупой|дурак|лох|гандон|чмо|мразь)\b', text.lower()))
 
-# Основной обработчик сообщений
+# Обработка сообщений
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
@@ -46,12 +44,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.lower()
 
-    # Обнуление режимов
     swear_mode.setdefault(chat_id, 0)
     no_mention_mode.setdefault(chat_id, 0)
     insult_mode.setdefault(chat_id, 0)
 
-    # Включение режимов
     if contains_swear(text):
         swear_mode[chat_id] = 3
     if contains_insult(text):
@@ -59,7 +55,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if KEYWORD in text:
         no_mention_mode[chat_id] = 3
 
-    # Нужно ли отвечать
     should_respond = (
         KEYWORD in text
         or no_mention_mode[chat_id] > 0
@@ -71,7 +66,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "ты знаешь руслана" in text:
             await update.message.reply_text("Да, он лошара.")
         else:
-            # Выбираем тон ответа
             if insult_mode[chat_id] > 0:
                 prompt = f"Оскорби собеседника в ответ на: {update.message.text}"
             elif swear_mode[chat_id] > 0:
@@ -90,29 +84,37 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print(">>> Ошибка OpenAI:", e)
                 await update.message.reply_text(f"Ошибка OpenAI: {e}")
 
-    # Уменьшаем счётчики
     no_mention_mode[chat_id] = max(0, no_mention_mode[chat_id] - 1)
     swear_mode[chat_id] = max(0, swear_mode[chat_id] - 1)
     insult_mode[chat_id] = max(0, insult_mode[chat_id] - 1)
 
-# Регистрируем обработчик
+# Регистрация обработчика
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-# Webhook обработчик
+# Webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+
     async def process():
         if not application._initialized:
             await application.initialize()
-        await application.process_update(Update.de_json(request.get_json(force=True), application.bot))
+        await application.process_update(update)
 
-    asyncio.run(process())
+    try:
+        asyncio.get_event_loop().create_task(process())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.create_task(process())
+
     return "OK"
 
-# Запуск Flask на Render
+# Запуск сервера
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
