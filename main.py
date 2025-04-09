@@ -80,8 +80,12 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run(application.process_update(update))
+    async def process():
+        if not application._initialized:
+            await application.initialize()
+        await application.process_update(Update.de_json(request.get_json(force=True), application.bot))
+
+    asyncio.run(process())
     return "OK"
 
 if __name__ == "__main__":
