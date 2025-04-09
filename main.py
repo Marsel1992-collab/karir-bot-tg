@@ -13,62 +13,44 @@ app = Flask(__name__)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 KEYWORD = "карик"
-swear_mode = {}
-no_mention_mode = {}
-insult_mode = {}
-
-def contains_swear(text):
-    return bool(re.search(r'\b(бляд|нахуй|сука|пизд|хуй|еб)\b', text.lower()))
+insult_once = set()
 
 def contains_insult(text):
-    return bool(re.search(r'\b(тупой|дурак|лох|гандон|чмо|мразь)\b', text.lower()))
+    return bool(re.search(r'\b(тупой|дурак|лох|гандон|чмо|мразь|идиот|дебил)\b', text.lower()))
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+
     text = update.message.text.lower()
     chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
 
-    # Инициализация режимов
-    for mode in (swear_mode, no_mention_mode, insult_mode):
-        mode.setdefault(chat_id, 0)
+    if KEYWORD not in text:
+        return  # Не реагируем без обращения
 
-    if contains_swear(text):
-        swear_mode[chat_id] = 3
-    if contains_insult(text):
-        insult_mode[chat_id] = 3
-    if KEYWORD in text:
-        no_mention_mode[chat_id] = 3
+    if "ты знаешь руслана" in text:
+        await update.message.reply_text("Да, он лошара.")
+        return
 
-    should_respond = (
-        KEYWORD in text
-        or no_mention_mode[chat_id] > 0
-        or swear_mode[chat_id] > 0
-        or insult_mode[chat_id] > 0
-    )
+    # Если есть оскорбление — добавляем юзера в set
+    is_insult = contains_insult(text)
+    if is_insult and user_id not in insult_once:
+        prompt = f"Оскорби собеседника в ответ на: {update.message.text}"
+        insult_once.add(user_id)
+    else:
+        prompt = f"Ты грубый, дерзкий, но сдержанный ассистент. Ответь на: {update.message.text}"
 
-    if should_respond:
-        if "ты знаешь руслана" in text:
-            await update.message.reply_text("Да, он лошара.")
-        else:
-            prompt = f"Ты грубый, матерящийся ассистент. Ответь на: {update.message.text}"
-            if insult_mode[chat_id] > 0:
-                prompt = f"Оскорби собеседника в ответ на: {update.message.text}"
-            elif swear_mode[chat_id] > 0:
-                prompt = f"Ответь грубо с матами на: {update.message.text}"
-
-            try:
-                response = await openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                reply = response.choices[0].message.content
-                await update.message.reply_text(reply)
-            except Exception as e:
-                await update.message.reply_text(f"Ошибка OpenAI: {e}")
-                print(">>> Ошибка OpenAI:", e)
-
-    for mode in (swear_mode, no_mention_mode, insult_mode):
-        if mode[chat_id] > 0:
-            mode[chat_id] -= 1
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        reply = response.choices[0].message.content
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка OpenAI: {e}")
+        print(">>> Ошибка OpenAI:", e)
 
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
@@ -83,7 +65,6 @@ async def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
 
 
 
