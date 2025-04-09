@@ -101,14 +101,7 @@ def webhook():
             await application.initialize()
         await application.process_update(update)
 
-    try:
-        asyncio.get_event_loop().create_task(process())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.create_task(process())
-
-    return "OK"
+    return asyncio.run(process())
 
 # Запуск сервера
 if __name__ == "__main__":
