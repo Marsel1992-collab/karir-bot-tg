@@ -1,97 +1,84 @@
 
+import os
+import logging
+import pytz
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
-from openai import OpenAI
-import asyncio
-import os
-import traceback
-import pytz
+import openai
+import re
 
+openai.api_key = os.getenv("OPENAI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
-client = OpenAI(api_key=OPENAI_API_KEY)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
-application.job_queue.scheduler.configure(timezone=pytz.UTC)
 
-# Сохраняем память в user_data
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message is None or update.message.text is None:
-        return
+KEYWORD = "карик"
+swear_mode = {}
+no_mention_mode = {}
+insult_mode = {}
 
-    user_id = update.message.from_user.id
+def contains_swear(text):
+    return bool(re.search(r'\b(бляд|нахуй|сука|пизд|хуй|еб)\b', text.lower()))
+
+def contains_insult(text):
+    return bool(re.search(r'\b(тупой|дурак|лох|гандон|чмо|мразь)\b', text.lower()))
+
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     text = update.message.text.lower()
 
-    # если сообщение содержит слово "карик"
-    if "карик" not in text:
-        return
+    if chat_id not in swear_mode:
+        swear_mode[chat_id] = 0
+    if chat_id not in no_mention_mode:
+        no_mention_mode[chat_id] = 0
+    if chat_id not in insult_mode:
+        insult_mode[chat_id] = 0
 
-    # спецответ про Руслана
-    if "ты знаешь руслана" in text:
-        await update.message.reply_text("Да, он лошара 😎")
-        return
+    if contains_swear(text):
+        swear_mode[chat_id] = 3
+    if contains_insult(text):
+        insult_mode[chat_id] = 3
+    if KEYWORD in text:
+        no_mention_mode[chat_id] = 3
 
-    # генерация картинки по фразе
-    if "нарисуй" in text or "сделай картинку" in text:
-        prompt = update.message.text.replace("карик", "").replace("нарисуй", "").strip()
-        try:
-            image = client.images.generate(
-                model="dall-e-3",
-                prompt=prompt,
-                size="1024x1024",
-                quality="standard",
-                n=1
-            )
-            image_url = image.data[0].url
-            await update.message.reply_photo(photo=image_url)
-        except Exception as e:
-            print("Ошибка генерации изображения:", e)
-            await update.message.reply_text("Не удалось сгенерировать изображение.")
-        return
+    should_respond = KEYWORD in text or no_mention_mode[chat_id] > 0 or swear_mode[chat_id] > 0 or insult_mode[chat_id] > 0
 
-    # История сообщений (память)
-    history = context.user_data.get("history", [])
-    history.append({"role": "user", "content": update.message.text})
-    history = history[-5:]  # сохраняем последние 5 сообщений
+    if should_respond:
+        if "ты знаешь руслана" in text:
+            await update.message.reply_text("Да, он лошара.")
+        else:
+            prompt = f"Ты грубый, саркастичный и матерящийся ассистент. Отвечай на: {update.message.text}"
+            if insult_mode[chat_id] > 0:
+                prompt = f"Оскорби собеседника в ответ на: {update.message.text}"
+            elif swear_mode[chat_id] > 0:
+                prompt = f"Ответь грубо с матами на: {update.message.text}"
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=history
-        )
-        reply = response.choices[0].message.content.strip()
-        await update.message.reply_text(reply)
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                reply = response["choices"][0]["message"]["content"]
+                await update.message.reply_text(reply)
+            except Exception as e:
+                await update.message.reply_text(f"Ошибка OpenAI: {e}")
 
-        history.append({"role": "assistant", "content": reply})
-        context.user_data["history"] = history
+    if no_mention_mode[chat_id] > 0:
+        no_mention_mode[chat_id] -= 1
+    if swear_mode[chat_id] > 0:
+        swear_mode[chat_id] -= 1
+    if insult_mode[chat_id] > 0:
+        insult_mode[chat_id] -= 1
 
-    except Exception as e:
-        print("Ошибка OpenAI:", e)
-        await update.message.reply_text("Произошла ошибка при обработке запроса.")
-
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    async def process():
-        try:
-            await application.initialize()
-            update = Update.de_json(request.get_json(force=True), application.bot)
-            await application.process_update(update)
-        except Exception as e:
-            print(">>> ОШИБКА ВНУТРИ process():")
-            traceback.print_exc()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(process())
-    return "ok"
-
-@app.route("/", methods=["GET"])
-def index():
-    return "Карик-бот онлайн!"
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "OK"
 
 if __name__ == "__main__":
     import os
