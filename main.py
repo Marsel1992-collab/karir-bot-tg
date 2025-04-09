@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 import openai
 import re
+import asyncio
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -80,12 +81,8 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-
-    import asyncio
     asyncio.run(application.process_update(update))
-
     return "OK"
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
