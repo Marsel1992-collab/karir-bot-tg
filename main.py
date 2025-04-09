@@ -1,11 +1,10 @@
 import os
-import logging
+import re
 import pytz
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
-import re
 
 openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -25,14 +24,12 @@ def contains_insult(text):
     return bool(re.search(r'\b(тупой|дурак|лох|гандон|чмо|мразь)\b', text.lower()))
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(">>> Получено сообщение:", update.message.text)
-    chat_id = update.effective_chat.id
     text = update.message.text.lower()
+    chat_id = update.effective_chat.id
 
-    # Режимы
-    swear_mode[chat_id] = swear_mode.get(chat_id, 0)
-    no_mention_mode[chat_id] = no_mention_mode.get(chat_id, 0)
-    insult_mode[chat_id] = insult_mode.get(chat_id, 0)
+    # Инициализация режимов
+    for mode in (swear_mode, no_mention_mode, insult_mode):
+        mode.setdefault(chat_id, 0)
 
     if contains_swear(text):
         swear_mode[chat_id] = 3
@@ -41,7 +38,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if KEYWORD in text:
         no_mention_mode[chat_id] = 3
 
-    should_respond = KEYWORD in text or no_mention_mode[chat_id] > 0 or swear_mode[chat_id] > 0 or insult_mode[chat_id] > 0
+    should_respond = (
+        KEYWORD in text
+        or no_mention_mode[chat_id] > 0
+        or swear_mode[chat_id] > 0
+        or insult_mode[chat_id] > 0
+    )
 
     if should_respond:
         if "ты знаешь руслана" in text:
@@ -61,20 +63,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply = response.choices[0].message.content
                 await update.message.reply_text(reply)
             except Exception as e:
-                print(">>> Ошибка OpenAI:", e)
                 await update.message.reply_text(f"Ошибка OpenAI: {e}")
+                print(">>> Ошибка OpenAI:", e)
 
-    # Уменьшаем счётчики
-    if no_mention_mode[chat_id] > 0:
-        no_mention_mode[chat_id] -= 1
-    if swear_mode[chat_id] > 0:
-        swear_mode[chat_id] -= 1
-    if insult_mode[chat_id] > 0:
-        insult_mode[chat_id] -= 1
+    for mode in (swear_mode, no_mention_mode, insult_mode):
+        if mode[chat_id] > 0:
+            mode[chat_id] -= 1
 
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-# ✅ Асинхронный маршрут
 @app.route("/webhook", methods=["POST"])
 async def webhook():
     if not application._initialized:
