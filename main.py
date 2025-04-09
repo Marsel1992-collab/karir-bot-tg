@@ -76,10 +76,23 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 @app.route("/webhook", methods=["POST"])
-async def webhook():
+def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.initialize()
-    await application.process_update(update)
+
+    async def process():
+        if not application._initialized:
+            await application.initialize()
+        await application.process_update(update)
+
+    try:
+        asyncio.get_event_loop().run_until_complete(process())
+    except RuntimeError:
+        # если event loop уже закрыт или занят, создаём новый
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(process())
+        loop.close()
+
     return "OK"
 
 if __name__ == "__main__":
