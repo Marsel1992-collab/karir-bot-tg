@@ -66,21 +66,23 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_m
 # ======= Webhook для Telegram =======
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    print(">>> Получен входящий запрос от Telegram!")
+    print(">>> Входящий запрос от Telegram!")
 
     async def process():
         try:
-            if not application.ready:
-                await application.initialize()
+            await application.initialize()
             update = Update.de_json(request.get_json(force=True), application.bot)
             print(f">>> Содержимое update:\n{update}")
             await application.process_update(update)
-        except Exception:
+        except Exception as e:
             import traceback
-            print(">>> ОШИБКА в обработке:")
+            print(">>> ОШИБКА ВНУТРИ process():")
             traceback.print_exc()
 
-    asyncio.run(process())
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(process())
     return "ok"
 
 @app.route("/", methods=["GET"])
