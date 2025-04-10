@@ -15,6 +15,10 @@ app = Flask(__name__)
 # ==== Telegram bot ====
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+# ==== Память для каждого пользователя ====
+user_histories = {}  # user_id: [ {role: ..., content: ...}, ... ]
+MAX_HISTORY_LENGTH = 10
+
 # ==== Проверка на мат и оскорбления ====
 def contains_swear(text):
     return bool(re.search(r'\b(еб|бля|пизд|хуй|сука|нах|гандон|мудак|чмо|мразь)\b', text.lower()))
@@ -46,18 +50,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Вот и иди ты на х*й! 🤬")
         return
 
+    user_id = update.message.from_user.id
     user_message = update.message.text
     print(f"Получено сообщение с 'карик': {user_message}")
 
+    # Инициализируем историю, если её ещё нет
+    if user_id not in user_histories:
+        user_histories[user_id] = []
+
+    # Добавляем новое сообщение в историю
+    user_histories[user_id].append({"role": "user", "content": user_message})
+
+    # Обрезаем историю, если она слишком длинная
+    if len(user_histories[user_id]) > MAX_HISTORY_LENGTH:
+        user_histories[user_id] = user_histories[user_id][-MAX_HISTORY_LENGTH:]
+
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": user_message}
-            ]
+            model="gpt-4-turbo",
+            messages=user_histories[user_id]
         )
         reply = response.choices[0].message.content.strip()
         print(f"GPT ответил: {reply}")
+
+        # Добавляем ответ ассистента в историю
+        user_histories[user_id].append({"role": "assistant", "content": reply})
+        if len(user_histories[user_id]) > MAX_HISTORY_LENGTH:
+            user_histories[user_id] = user_histories[user_id][-MAX_HISTORY_LENGTH:]
+
         await update.message.reply_text(reply)
 
     except Exception as e:
