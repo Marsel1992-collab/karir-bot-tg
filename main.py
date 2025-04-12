@@ -11,7 +11,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-app = Flask(name)
+app = Flask(__name__)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 # Простые фильтры
