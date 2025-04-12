@@ -6,39 +6,38 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
 
-# Инициализация
-app = Flask(__name__)
+# ==== Ключи ====
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-application = Application.builder().token(TELEGRAM_TOKEN).build()
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# Флаг матерного ответа
-swear_mode = {}
+# ==== Flask-приложение ====
+app = Flask(__name__)
 
-# Проверка на мат
-def contains_swear(text):
-    return bool(re.search(r'\b(бляд|нахуй|сука|пизд|хуй|еб)\b', text.lower()))
+# ==== Telegram bot ====
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# Обработчик Telegram-сообщений
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.lower()
-    chat_id = update.effective_chat.id
-
-    use_swear = False
-
-    if contains_swear(text):
-        swear_mode[chat_id] = 1
-
-    if "карик" not in text and swear_mode.get(chat_id, 0) == 0:
+# ==== Обработчик сообщений ====
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None or update.message.text is None:
         return
 
-    if swear_mode.get(chat_id, 0):
-        prompt = f"Ответь грубо и с матами: {text}"
-        swear_mode[chat_id] = 0
+    text = update.message.text.lower()
+
+    if "карик" not in text:
+        print(">>> Сообщение без 'карик' — игнорируем.")
+        return
+
+    insult_words = ["тупой", "лох", "гандон", "чмо", "мразь", "идиот"]
+    generate_keywords = ["сгенерируй", "нарисуй", "картинку", "фото", "изображение"]
+
+    if any(word in text for word in insult_words):
+        prompt = f"Ответь оскорбительно на: {update.message.text}"
+    elif any(word in text for word in generate_keywords):
+        await generate_image(update)
+        return
     else:
-        prompt = f"Ты дерзкий бот. Ответь на: {text}"
+        prompt = update.message.text
 
     try:
         response = await openai_client.chat.completions.create(
@@ -48,36 +47,59 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = response.choices[0].message.content.strip()
         await update.message.reply_text(reply)
     except Exception as e:
-        await update.message.reply_text(f"Произошла ошибка при обращении к OpenAI.")
-        print(f"OpenAI error: {e}")
+        print(f"Ошибка OpenAI: {e}")
+        await update.message.reply_text("Произошла ошибка при обращении к OpenAI.")
 
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-# Webhook
+async def generate_image(update: Update):
+    try:
+        prompt = update.message.text.replace("карик", "").strip()
+        image_response = await openai_client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            n=1
+        )
+        image_url = image_response.data[0].url
+        await update.message.reply_photo(photo=image_url)
+    except Exception as e:
+        print(f"Ошибка генерации изображения: {e}")
+        await update.message.reply_text("Не удалось сгенерировать изображение.")
+
+
+# ==== Регистрируем обработчик ====
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+# ==== Webhook для Telegram ====
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.create_task(application.process_update(update))
+    print(">>> Входящий запрос от Telegram!")
+
+    async def process():
+        try:
+            if not application._initialized:
+                await application.initialize()
+            update = Update.de_json(request.get_json(force=True), application.bot)
+            print(f">>> Содержимое update:\n{update}")
+            await application.process_update(update)
+        except Exception as e:
+            import traceback
+            print(">>> ОШИБКА ВНУТРИ process():")
+            traceback.print_exc()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(process())
     return "ok"
 
-# Главная страница
-@app.route("/")
+
+@app.route("/", methods=["GET"])
 def index():
-    return "Бот работает."
+    return "Бот работает!"
 
-# Запуск Flask
+# ==== Запуск сервера ====
 if __name__ == "__main__":
-    import threading
-    import logging
-    logging.basicConfig(level=logging.INFO)
+    print("Сервер запущен. Ожидаем сообщения...")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
-    loop = asyncio.get_event_loop()
-
-    def run_flask():
-        port = int(os.environ.get("PORT", 5000))
-        app.run(host="0.0.0.0", port=port)
-
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
-
-    loop.run_until_complete(application.initialize())
