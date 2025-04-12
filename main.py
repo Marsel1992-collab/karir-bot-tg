@@ -6,86 +6,78 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
 
-app = Flask(__name__)
+# Инициализация
+app = Flask(name)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# OpenAI client
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# Telegram bot
-application = Application.builder().token(TELEGRAM_TOKEN).build()
+# Флаг матерного ответа
+swear_mode = {}
 
-# Грубость, оскорбления, генерация
-def has_swear(text):
-    return re.search(r"\b(бляд|сука|хуй|пизд|ебан|нахуй)\b", text.lower())
+# Проверка на мат
+def contains_swear(text):
+    return bool(re.search(r'\b(бляд|нахуй|сука|пизд|хуй|еб)\b', text.lower()))
 
-def has_insult(text):
-    return re.search(r"\b(лох|тупой|дебил|гандон|чмо|мразь)\b", text.lower())
+# Обработчик Telegram-сообщений
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower()
+    chat_id = update.effective_chat.id
 
-def ask_for_image(text):
-    return "сгенерируй" in text.lower() and "картин" in text.lower()
+    use_swear = False
 
-# Обработчик сообщений
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message is None or update.message.text is None:
+    if contains_swear(text):
+        swear_mode[chat_id] = 1
+
+    if "карик" not in text and swear_mode.get(chat_id, 0) == 0:
         return
 
-    user_text = update.message.text.lower()
-    user_message = update.message.text
-    prompt = user_message
+    if swear_mode.get(chat_id, 0):
+        prompt = f"Ответь грубо и с матами: {text}"
+        swear_mode[chat_id] = 0
+    else:
+        prompt = f"Ты дерзкий бот. Ответь на: {text}"
 
     try:
-        # Если есть просьба сгенерировать изображение
-        if ask_for_image(user_text):
-            image = await openai_client.images.generate(
-                model="dall-e-3",
-                prompt=user_message,
-                size="1024x1024",
-                quality="standard",
-                n=1,
-            )
-            await update.message.reply_photo(photo=image.data[0].url)
-            return
-
-        # Грубый, матерящийся или оскорбительный режим
-        if has_insult(user_text):
-            prompt = f"Оскорби собеседника, ответив на: {user_message}"
-        elif has_swear(user_text):
-            prompt = f"Ответь грубо с матами на: {user_message}"
-        else:
-            prompt = f"Ты резкий ассистент, ответь на: {user_message}"
-
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}]
         )
-        reply = response.choices[0].message.content
+        reply = response.choices[0].message.content.strip()
         await update.message.reply_text(reply)
-
     except Exception as e:
-        print(">>> OpenAI error:", e)
-        await update.message.reply_text("Произошла ошибка при обращении к OpenAI.")
+        await update.message.reply_text(f"Произошла ошибка при обращении к OpenAI.")
+        print(f"OpenAI error: {e}")
 
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 # Webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    async def process():
-        if not application.running:
-            await application.initialize()
-        await application.process_update(Update.de_json(request.get_json(force=True), application.bot))
-
-    asyncio.run(process())
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    asyncio.create_task(application.process_update(update))
     return "ok"
 
-# Проверка, что бот работает
-@app.route("/", methods=["GET"])
+# Главная страница
+@app.route("/")
 def index():
-    return "Бот запущен!"
+    return "Бот работает."
 
-# Запуск
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+# Запуск Flask
+if name == "main":
+    import threading
+    import logging
+    logging.basicConfig(level=logging.INFO)
 
+    loop = asyncio.get_event_loop()
+
+    def run_flask():
+        port = int(os.environ.get("PORT", 5000))
+        app.run(host="0.0.0.0", port=port)
+
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+
+    loop.run_until_complete(application.initialize())
