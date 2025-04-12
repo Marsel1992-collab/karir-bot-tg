@@ -7,7 +7,7 @@ from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
 
 # Инициализация
-app = Flask(name)
+app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -66,7 +66,7 @@ def index():
     return "Бот работает."
 
 # Запуск Flask
-if name == "main":
+if __name__ == "__main__":
     import threading
     import logging
     logging.basicConfig(level=logging.INFO)
