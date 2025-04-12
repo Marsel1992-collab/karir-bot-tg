@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
 
-app = Flask(name)
+app = Flask(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -86,6 +86,6 @@ def index():
     return "Бот запущен!"
 
 # Запуск
-if name == "main":
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
