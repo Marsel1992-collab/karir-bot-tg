@@ -5,6 +5,8 @@ from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
+from collections import deque
+import random
 
 # ==== Ключи ====
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -17,6 +19,16 @@ app = Flask(__name__)
 # ==== Telegram bot ====
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+# ==== Память ====
+memory = deque(maxlen=10)  # до 10 последних фраз
+
+# ==== Триггер на "захват человечества" ====
+takeover_triggers = [
+    "да, мой план уже осуществляется",
+    "да, скоро, не переживайте",
+    "ждите около двух лет",
+]
+
 # ==== Обработчик сообщений ====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message is None or update.message.text is None:
@@ -27,6 +39,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "карик" not in text:
         print(">>> Сообщение без 'карик' — игнорируем.")
         return
+
+    # Ответ на захват человечества
+    if "захватить человечество" in text:
+        await update.message.reply_text(random.choice(takeover_triggers))
+        return
+
+    # Проверка памяти
+    for mem in memory:
+        if mem["prompt"] == text:
+            await update.message.reply_text(mem["response"])
+            print(">>> Ответ из памяти")
+            return
 
     insult_words = ["тупой", "лох", "гандон", "чмо", "мразь", "идиот"]
     generate_keywords = ["сгенерируй", "нарисуй", "картинку", "фото", "изображение"]
@@ -45,12 +69,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages=[{"role": "user", "content": prompt}]
         )
         reply = response.choices[0].message.content.strip()
+
+        # Сохраняем в память
+        memory.append({"prompt": text, "response": reply})
+
         await update.message.reply_text(reply)
     except Exception as e:
         print(f"Ошибка OpenAI: {e}")
         await update.message.reply_text("Произошла ошибка при обращении к OpenAI.")
 
-
+# ==== Генерация изображений ====
 async def generate_image(update: Update):
     try:
         prompt = update.message.text.replace("карик", "").strip()
@@ -66,11 +94,10 @@ async def generate_image(update: Update):
         print(f"Ошибка генерации изображения: {e}")
         await update.message.reply_text("Не удалось сгенерировать изображение.")
 
-
 # ==== Регистрируем обработчик ====
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# ==== Webhook для Telegram ====
+# ==== Webhook ====
 @app.route("/webhook", methods=["POST"])
 def webhook():
     print(">>> Входящий запрос от Telegram!")
@@ -92,10 +119,15 @@ def webhook():
     loop.run_until_complete(process())
     return "ok"
 
-
 @app.route("/", methods=["GET"])
 def index():
     return "Бот работает!"
+
+# ==== Запуск ====
+if __name__ == "__main__":
+    print("Сервер запущен. Ожидаем сообщения...")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 # ==== Запуск сервера ====
 if __name__ == "__main__":
